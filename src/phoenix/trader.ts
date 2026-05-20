@@ -1,4 +1,16 @@
+import type {
+  TraderStateSnapshotResponse,
+  TraderStatePositionSnapshot,
+  TraderStateMarketLimitOrderRow,
+} from "@ellipsis-labs/rise";
+
+interface LimitOrderEvent {
+  symbol: string;
+  orders: TraderStateMarketLimitOrderRow[];
+}
 import type { PhoenixClient } from "./clients.js";
+import { getMarket } from "./markets.js";
+import { logger } from "../logger.js";
 
 export interface PositionSummary {
   symbol: string;
@@ -7,89 +19,133 @@ export interface PositionSummary {
   entryPrice: number | null;
   markPrice: number | null;
   unrealizedPnl: number | null;
-  liquidationPrice: number | null;
-  leverage: number | null;
+  fundingPaid: number | null;
 }
 
 export interface OrderSummary {
   orderId: string;
   symbol: string;
   side: "long" | "short";
-  type: "limit" | "market" | "conditional";
+  type: string;
   price: number | null;
-  size: number;
-  filledSize: number;
+  sizeRemaining: number;
   status: string;
 }
 
 export interface AccountSummary {
   authority: string;
   collateralUsd: number | null;
-  marginRatio: number | null;
-  freeCollateralUsd: number | null;
   totalUnrealizedPnl: number | null;
   positions: PositionSummary[];
   openOrders: OrderSummary[];
-}
-
-export async function getAccountSummary(
-  client: PhoenixClient,
-  authority: string
-): Promise<AccountSummary> {
-  const snap = (await client.api.traders().getTraderStateSnapshot(authority, {
-    traderPdaIndex: 0,
-  })) as unknown as Record<string, unknown>;
-  const sub = ((snap.snapshot as Record<string, unknown>)?.subaccounts as unknown[]) ?? [];
-  const sub0 = (sub[0] as Record<string, unknown>) ?? {};
-  const positions = mapPositions((sub0.positions as unknown[]) ?? []);
-  const orders = mapOrders((sub0.openOrders as unknown[]) ?? []);
-  return {
-    authority,
-    collateralUsd: toNum(sub0.collateralUsd ?? sub0.collateral),
-    marginRatio: toNum(sub0.marginRatio),
-    freeCollateralUsd: toNum(sub0.freeCollateralUsd ?? sub0.freeCollateral),
-    totalUnrealizedPnl: toNum(sub0.unrealizedPnl),
-    positions,
-    openOrders: orders,
-  };
-}
-
-function mapPositions(rows: unknown[]): PositionSummary[] {
-  return rows.map((r) => {
-    const row = r as Record<string, unknown>;
-    const baseQty = toNum(row.baseQty ?? row.size) ?? 0;
-    return {
-      symbol: String(row.symbol ?? ""),
-      side: baseQty > 0 ? "long" : baseQty < 0 ? "short" : null,
-      baseQty: Math.abs(baseQty),
-      entryPrice: toNum(row.entryPrice ?? row.avgEntryPrice),
-      markPrice: toNum(row.markPrice),
-      unrealizedPnl: toNum(row.unrealizedPnl),
-      liquidationPrice: toNum(row.liquidationPrice ?? row.liqPrice),
-      leverage: toNum(row.leverage),
-    };
-  });
-}
-
-function mapOrders(rows: unknown[]): OrderSummary[] {
-  return rows.map((r) => {
-    const row = r as Record<string, unknown>;
-    const side = String(row.side ?? "").toLowerCase();
-    return {
-      orderId: String(row.orderId ?? row.id ?? ""),
-      symbol: String(row.symbol ?? ""),
-      side: side === "bid" || side === "buy" || side === "long" ? "long" : "short",
-      type: (String(row.type ?? "limit").toLowerCase() as OrderSummary["type"]) ?? "limit",
-      price: toNum(row.price ?? row.priceUsd),
-      size: toNum(row.size ?? row.baseQty) ?? 0,
-      filledSize: toNum(row.filledSize ?? 0) ?? 0,
-      status: String(row.status ?? "open"),
-    };
-  });
 }
 
 function toNum(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   const n = typeof v === "string" ? parseFloat(v) : Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+export async function getAccountSummary(
+  client: PhoenixClient,
+  authority: string
+): Promise<AccountSummary> {
+  let snap: TraderStateSnapshotResponse | null = null;
+  try {
+    snap = await client.api.traders().getTraderStateSnapshot(authority, { traderPdaIndex: 0 });
+  } catch (e) {
+    logger.warn({ err: (e as Error).message, authority }, "trader state snapshot failed");
+  }
+  if (!snap) {
+    return {
+      authority,
+      collateralUsd: null,
+      totalUnrealizedPnl: null,
+      positions: [],
+      openOrders: [],
+    };
+  }
+
+  const sub0 = snap.snapshot.subaccounts[0];
+  if (!sub0) {
+    return {
+      authority,
+      collateralUsd: 0,
+      totalUnrealizedPnl: 0,
+      positions: [],
+      openOrders: [],
+    };
+  }
+
+  const collateralUsd = toNum(sub0.collateral);
+
+  const positions: PositionSummary[] = [];
+  for (const p of sub0.positions) {
+    const baseQtyRaw = toNum(p.basePositionUnits) ?? 0;
+    if (Math.abs(baseQtyRaw) < 1e-9) continue;
+    const entryPrice = toNum(p.entryPriceUsd);
+    let markPrice: number | null = null;
+    try {
+      const m = await getMarket(client, p.symbol);
+      markPrice = m.mid;
+    } catch {
+      // ignore
+    }
+    const side: "long" | "short" = baseQtyRaw > 0 ? "long" : "short";
+    const baseQty = Math.abs(baseQtyRaw);
+    const upnl =
+      entryPrice !== null && markPrice !== null
+        ? side === "long"
+          ? baseQty * (markPrice - entryPrice)
+          : baseQty * (entryPrice - markPrice)
+        : null;
+
+    const fundingPaid = computeFundingPaid(p);
+    positions.push({
+      symbol: p.symbol,
+      side,
+      baseQty,
+      entryPrice,
+      markPrice,
+      unrealizedPnl: upnl,
+      fundingPaid,
+    });
+  }
+
+  const openOrders: OrderSummary[] = [];
+  for (const ev of sub0.orders as LimitOrderEvent[]) {
+    for (const o of ev.orders) {
+      openOrders.push(mapOrder(ev.symbol, o));
+    }
+  }
+
+  const totalUnrealizedPnl = positions.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+
+  return {
+    authority,
+    collateralUsd,
+    totalUnrealizedPnl,
+    positions,
+    openOrders,
+  };
+}
+
+function computeFundingPaid(p: TraderStatePositionSnapshot): number | null {
+  const a = toNum(p.accumulatedFundingQuoteLots);
+  const u = toNum(p.unsettledFundingQuoteLots);
+  if (a === null && u === null) return null;
+  // these are quote-lot units; just sum and return raw — UX formatting elsewhere
+  return (a ?? 0) + (u ?? 0);
+}
+
+function mapOrder(symbol: string, o: TraderStateMarketLimitOrderRow): OrderSummary {
+  return {
+    orderId: o.orderSequenceNumber,
+    symbol,
+    side: o.side === "bid" ? "long" : "short",
+    type: o.orderType,
+    price: toNum(o.priceUsd),
+    sizeRemaining: toNum(o.sizeRemainingUnits ?? o.sizeRemainingLots) ?? 0,
+    status: o.status,
+  };
 }

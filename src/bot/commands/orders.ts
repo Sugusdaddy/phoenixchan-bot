@@ -7,10 +7,7 @@ import { bold, code, fmtNum, fmtUsd } from "../format.js";
 export async function ordersCmd(ctx: CommandContext<Context>): Promise<void> {
   if (!ctx.from) return;
   const user = getUser(ctx.from.id);
-  if (!user?.trader_authority) {
-    await ctx.reply("No wallet linked. Run /start.");
-    return;
-  }
+  if (!user?.trader_authority) return void ctx.reply("No wallet linked. Run /start.");
   try {
     const client = await getClientForUser(ctx.from.id);
     const acct = await getAccountSummary(client, user.trader_authority);
@@ -20,8 +17,9 @@ export async function ordersCmd(ctx: CommandContext<Context>): Promise<void> {
     }
     const lines = [`${bold("Open orders")}`];
     for (const o of acct.openOrders) {
+      const sideEmoji = o.side === "long" ? "🟢" : "🔴";
       lines.push(
-        `${code(o.orderId)} ${o.symbol} ${o.side.toUpperCase()} ${o.type} ${fmtNum(o.size)} @ ${fmtUsd(o.price)}`
+        `${code(o.orderId.slice(0, 10) + "…")} ${sideEmoji} ${o.symbol} ${o.type}\n  size: ${fmtNum(o.sizeRemaining, 6)} @ ${fmtUsd(o.price)}  [${o.status}]`
       );
     }
     await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
