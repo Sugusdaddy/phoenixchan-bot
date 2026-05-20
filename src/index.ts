@@ -32,6 +32,9 @@ import {
 import { confirmCmd, maxNotionalCmd } from "./bot/commands/settings.js";
 import { tpCmd, slCmd, tpslCmd } from "./bot/commands/tpsl.js";
 import { statsCmd } from "./bot/commands/stats.js";
+import { historyCmd } from "./bot/commands/history.js";
+import { onPosCallback } from "./bot/commands/pos.js";
+import { startDepositWatcher, onDepositCallback } from "./alerts/deposit_watcher.js";
 import { alertCmd, alertsCmd, delAlertCmd } from "./bot/commands/alerts.js";
 import { startAlertEngine } from "./alerts/engine.js";
 import { disposeAll } from "./phoenix/clients.js";
@@ -66,6 +69,7 @@ bot.command("balance", requireLinked, requireRegistered, balanceCmd);
 bot.command("orders", requireLinked, requireRegistered, ordersCmd);
 bot.command("pnl", requireLinked, requireRegistered, pnlCmd);
 bot.command("funding", requireLinked, fundingCmd);
+bot.command("history", requireLinked, requireRegistered, historyCmd);
 
 // Trading (requires registered + tos + rate limit)
 const tradeMw = [requireLinked, requireRegistered, requireTos, rateLimit("trades")] as const;
@@ -88,6 +92,8 @@ bot.on("callback_query:data", async (ctx) => {
   const data = ctx.callbackQuery.data;
   if (data?.startsWith("tos:")) return onTosCallback(ctx);
   if (data?.startsWith("confirm:")) return onConfirmCallback(ctx);
+  if (data?.startsWith("pos:")) return onPosCallback(ctx);
+  if (data?.startsWith("dep:")) return onDepositCallback(ctx);
 });
 
 bot.catch((err) => {
@@ -109,6 +115,7 @@ async function main() {
     { command: "orders", description: "Open orders" },
     { command: "balance", description: "Collateral and margin" },
     { command: "pnl", description: "Realized PnL window" },
+    { command: "history", description: "Recent trades with PnL" },
     { command: "long", description: "Market long" },
     { command: "short", description: "Market short" },
     { command: "limit", description: "Limit order" },
@@ -123,6 +130,7 @@ async function main() {
   ]);
 
   startAlertEngine(bot);
+  startDepositWatcher(bot);
 
   logger.info("bot starting");
   await bot.start({

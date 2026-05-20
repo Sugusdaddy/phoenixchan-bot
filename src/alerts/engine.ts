@@ -6,6 +6,7 @@ import { getBootstrapClient } from "../phoenix/clients.js";
 import { activeAlerts, markTriggered, type PriceAlert } from "../db/alerts.js";
 import { db } from "../db/index.js";
 import { fmtUsd } from "../bot/format.js";
+import { startTraderStreams } from "./trader_stream.js";
 
 interface UserHandle {
   telegram_id: number;
@@ -16,6 +17,7 @@ const lastPrice = new Map<string, number>();
 export function startAlertEngine(bot: Bot): void {
   startPricePoller(bot);
   startFillsSubscription(bot).catch((e) => logger.error({ err: e }, "fills subscription crashed"));
+  startTraderStreams(bot, () => getBootstrapClient());
 }
 
 function startPricePoller(bot: Bot): void {
