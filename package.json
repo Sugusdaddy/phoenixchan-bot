@@ -1,0 +1,36 @@
+{
+  "name": "phoenix-tg-bot",
+  "version": "0.1.0",
+  "description": "Multi-user Telegram bot for Phoenix perpetuals (Solana). Builder-authority pattern: non-custodial, delegated trading.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p . && node -e \"require('node:fs').cpSync('src/db/schema.sql','dist/db/schema.sql')\"",
+    "start": "node --enable-source-maps dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run --passWithNoTests",
+    "migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@ellipsis-labs/rise": "^0.4.9",
+    "@solana/kit": "^4.0.0",
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7",
+    "grammy": "^1.30.0",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,23 @@
+app = "phoenix-tg-bot"
+primary_region = "iad"
+
+[build]
+  dockerfile = "docker/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  DATABASE_PATH = "/app/data/phoenix-bot.db"
+
+[[mounts]]
+  source = "phoenix_data"
+  destination = "/app/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[deploy]
+  strategy = "immediate"
+
+[processes]
+  app = "node --enable-source-maps dist/index.js"

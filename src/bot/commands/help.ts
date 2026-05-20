@@ -1,0 +1,51 @@
+import type { CommandContext, Context } from "grammy";
+import { bold } from "../format.js";
+
+export async function helpCmd(ctx: CommandContext<Context>): Promise<void> {
+  await ctx.reply(
+    [
+      `${bold("Phoenix Trading Bot")}`,
+      ``,
+      `${bold("Setup")}`,
+      `/start — create your trading wallet`,
+      `/register [code] — register your trader account with Phoenix (required)`,
+      `/tos — review and accept terms`,
+      `/setwithdraw [pubkey] — set your withdrawal address`,
+      `/unlink confirm — remove wallet from bot`,
+      ``,
+      `${bold("Wallet")}`,
+      `/status — show wallet, balances, settings`,
+      `/balance — collateral and free margin`,
+      `/withdraw [amount] — withdraw USDC to your address`,
+      ``,
+      `${bold("Market data")}`,
+      `/price [symbol] — mark price + funding`,
+      `/markets — list available perps`,
+      ``,
+      `${bold("Account")}`,
+      `/pos — open positions`,
+      `/orders — open orders`,
+      `/pnl [7d|30d] — realized PnL`,
+      `/funding — recent funding payments`,
+      `/history — recent trades`,
+      ``,
+      `${bold("Trade")}`,
+      `/long [symbol] [usdc] [leverage] — market long`,
+      `/short [symbol] [usdc] [leverage] — market short`,
+      `/limit [symbol] [long|short] [usdc] [price] [leverage] — limit order`,
+      `/close [symbol] [pct] — close position`,
+      `/cancel [order_id] — cancel order`,
+      `/cancelall [symbol] — cancel all orders for a symbol`,
+      ``,
+      `${bold("Alerts")}`,
+      `/alert [symbol] [op] [price] — eg /alert SOL > 150`,
+      `/alerts — list active alerts`,
+      `/delalert [id] — delete an alert`,
+      ``,
+      `${bold("Settings")}`,
+      `/confirm on|off — toggle trade confirmations`,
+      `/maxnotional [usdc] — cap per-trade size`,
+    ].join("\n"),
+    { parse_mode: "HTML" }
+  );
+}
