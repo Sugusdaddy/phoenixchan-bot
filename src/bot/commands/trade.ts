@@ -239,7 +239,16 @@ async function executeTrade(
       status: "error",
       error: (e as Error).message,
     });
-    await reply(`Order failed: ${(e as Error).message}`);
+    const errAny = e as { name?: string; message?: string; programError?: string | null; logs?: string[] };
+    if (errAny.name === "SimulationError") {
+      const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const tail = (errAny.logs ?? []).slice(-10).map(esc).join("\n").slice(0, 2000);
+      await reply(
+        `Order failed (simulation): ${esc(errAny.programError ?? errAny.message ?? "")}\n\n<pre>${tail}</pre>`
+      );
+    } else {
+      await reply(`Order failed: ${(errAny.message ?? "unknown").replace(/[<>&]/g, "")}`);
+    }
   }
 }
 

@@ -8,6 +8,10 @@ const schema = z.object({
   PHOENIX_API_KEY: z.string().optional(),
   PHOENIX_BUILDER_AUTHORITY: z.string().min(32, "Builder pubkey required"),
   PHOENIX_BUILDER_PRIVATE_KEY: z.string().min(32, "Builder private key required"),
+  PHOENIX_DISABLE_FLIGHT: z
+    .string()
+    .default("false")
+    .transform((s) => s === "true"),
 
   SOLANA_RPC_URL: z.string().url().default("https://api.mainnet-beta.solana.com"),
 

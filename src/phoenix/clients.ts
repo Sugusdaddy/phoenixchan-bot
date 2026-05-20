@@ -13,11 +13,15 @@ function build(): PhoenixClient {
     rpcUrl: config.SOLANA_RPC_URL,
     pdaCache: { maxEntries: 2048 },
     exchangeMetadata: { stream: true },
-    flight: {
-      builderAuthority: config.PHOENIX_BUILDER_AUTHORITY as Authority,
-      builderPdaIndex: 0,
-      builderSubaccountIndex: 0,
-    },
+    ...(config.PHOENIX_DISABLE_FLIGHT
+      ? {}
+      : {
+          flight: {
+            builderAuthority: config.PHOENIX_BUILDER_AUTHORITY as Authority,
+            builderPdaIndex: 0,
+            builderSubaccountIndex: 0,
+          },
+        }),
   });
 }
 
@@ -25,7 +29,11 @@ export function getClient(): PhoenixClient {
   if (!_client) {
     _client = build();
     logger.info(
-      { builder: config.PHOENIX_BUILDER_AUTHORITY, apiUrl: config.PHOENIX_API_URL },
+      {
+        builder: config.PHOENIX_BUILDER_AUTHORITY,
+        flight: !config.PHOENIX_DISABLE_FLIGHT,
+        apiUrl: config.PHOENIX_API_URL,
+      },
       "phoenix client ready"
     );
   }
