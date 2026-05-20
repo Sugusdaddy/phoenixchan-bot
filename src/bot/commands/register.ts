@@ -1,6 +1,7 @@
 import type { CommandContext, Context } from "grammy";
 import { getUser, markRegistered } from "../../db/users.js";
 import { getClient } from "../../phoenix/clients.js";
+import { config } from "../../config.js";
 import { bold, code } from "../format.js";
 import { logger } from "../../logger.js";
 
@@ -19,81 +20,67 @@ export async function registerCmd(ctx: CommandContext<Context>): Promise<void> {
     return;
   }
 
-  const arg = ctx.match?.toString().trim();
-  if (!arg) {
-    await ctx.reply(
-      [
-        `${bold("Register your trader account")}`,
-        ``,
-        `Usage: /register [access_code]`,
-        ``,
-        `Phoenix is in private beta — you need an access, invite, or referral code.`,
-        `Get one from a friend or Phoenix Discord.`,
-      ].join("\n"),
-      { parse_mode: "HTML" }
-    );
+  const codeToUse = config.DEFAULT_REGISTER_CODE;
+  if (!codeToUse) {
+    logger.error("DEFAULT_REGISTER_CODE not configured");
+    await ctx.reply("Bot is not configured for self-registration. Contact the operator.");
     return;
   }
 
   try {
-    if (ctx.chat && ctx.message) {
-      try {
-        await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id);
-      } catch {
-        // ok if we can't delete
-      }
-    }
-
-    await ctx.reply("Registering with Phoenix…");
+    await ctx.reply(`Registering with referral ${code(codeToUse)}…`, { parse_mode: "HTML" });
 
     const client = getClient();
     let traderPda: string | null = null;
-    let usedFlow: "invite" | "referral" = "invite";
-    let inviteErr: string | null = null;
+    let usedFlow: "invite" | "referral" = "referral";
+    let refErr: string | null = null;
 
     try {
-      const resp = await client.api.invite().activateInvite({
+      const resp = await client.api.invite().activateInviteWithReferral({
         authority: user.trader_authority,
-        code: arg,
+        referral_code: codeToUse,
       });
       traderPda = resp.trader_pda;
     } catch (e) {
-      inviteErr = (e as Error).message;
-      logger.debug({ err: inviteErr }, "invite code path failed, trying referral");
+      refErr = (e as Error).message;
+      logger.debug({ err: refErr }, "referral code path failed, trying invite");
     }
 
     if (!traderPda) {
       try {
-        const resp = await client.api.invite().activateInviteWithReferral({
+        const resp = await client.api.invite().activateInvite({
           authority: user.trader_authority,
-          referral_code: arg,
+          code: codeToUse,
         });
         traderPda = resp.trader_pda;
-        usedFlow = "referral";
+        usedFlow = "invite";
       } catch (e) {
-        const refErr = (e as Error).message;
-        logger.error({ inviteErr, refErr, code: arg }, "both register paths failed");
-        const looksInvalid = /invalid|not.*found|400/i.test(inviteErr ?? "") &&
-          /invalid|not.*found|400/i.test(refErr);
-        if (looksInvalid) {
-          await ctx.reply(
-            "That code wasn't accepted as an invite or referral. Check it with the friend who gave it to you (or use a different code)."
-          );
-          return;
-        }
-        throw e;
+        const inviteErr = (e as Error).message;
+        logger.error(
+          { refErr, inviteErr, code: codeToUse },
+          "register failed with default code"
+        );
+        await ctx.reply(
+          "Registration is temporarily unavailable. The operator has been notified."
+        );
+        return;
       }
     }
 
-    markRegistered(ctx.from.id, traderPda, arg);
+    markRegistered(ctx.from.id, traderPda, codeToUse);
     logger.info(
-      { telegramId: ctx.from.id, authority: user.trader_authority, traderPda, flow: usedFlow },
+      {
+        telegramId: ctx.from.id,
+        authority: user.trader_authority,
+        traderPda,
+        flow: usedFlow,
+      },
       "trader registered"
     );
 
     await ctx.reply(
       [
-        `${bold("Registered ✅")}  (${usedFlow})`,
+        `${bold("Registered ✅")}  (referral ${codeToUse})`,
         `Trader PDA: ${code(traderPda)}`,
         ``,
         `Next steps:`,
@@ -105,7 +92,7 @@ export async function registerCmd(ctx: CommandContext<Context>): Promise<void> {
     );
   } catch (e) {
     const msg = (e as Error).message;
-    logger.error({ err: e, code: arg }, "register failed");
+    logger.error({ err: e, code: codeToUse }, "register failed");
 
     if (/already.*registered|already.*activated|wallet already/i.test(msg)) {
       await ctx.reply(

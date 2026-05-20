@@ -12,6 +12,7 @@ const schema = z.object({
     .string()
     .default("false")
     .transform((s) => s === "true"),
+  DEFAULT_REGISTER_CODE: z.string().optional(),
 
   SOLANA_RPC_URL: z.string().url().default("https://api.mainnet-beta.solana.com"),
 

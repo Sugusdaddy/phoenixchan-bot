@@ -105,7 +105,7 @@ async function main() {
     { command: "start", description: "Create your trading wallet" },
     { command: "help", description: "List all commands" },
     { command: "stats", description: "Bot stats (users, trades)" },
-    { command: "register", description: "Register with Phoenix (access code)" },
+    { command: "register", description: "Register your trader account (auto-verified)" },
     { command: "tos", description: "Accept terms of use" },
     { command: "status", description: "Show account status" },
     { command: "deposit", description: "Deposit address or credit collateral" },

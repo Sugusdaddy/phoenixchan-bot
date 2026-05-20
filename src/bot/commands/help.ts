@@ -10,7 +10,7 @@ export async function helpCmd(ctx: CommandContext<Context>): Promise<void> {
       ``,
       `${bold("Setup")}`,
       `/start — create your trading wallet`,
-      `/register [code] — register your trader account with Phoenix (required)`,
+      `/register — register your trader account with Phoenix (auto-verified)`,
       `/tos — review and accept terms`,
       `/setwithdraw [pubkey] — set your withdrawal address`,
       `/unlink confirm — remove wallet from bot`,
