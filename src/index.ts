@@ -93,7 +93,7 @@ async function main() {
     { command: "register", description: "Register with Phoenix (access code)" },
     { command: "tos", description: "Accept terms of use" },
     { command: "status", description: "Show account status" },
-    { command: "deposit", description: "Show deposit address" },
+    { command: "deposit", description: "Deposit address or credit collateral" },
     { command: "withdraw", description: "Withdraw USDC to your address" },
     { command: "price", description: "Market price (mid/bid/ask)" },
     { command: "pos", description: "Open positions" },
