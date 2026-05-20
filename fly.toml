@@ -1,4 +1,4 @@
-app = "phoenix-tg-bot"
+app = "phoenixchan-bot"
 primary_region = "iad"
 
 [build]
