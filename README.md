@@ -1,119 +1,134 @@
-# Phoenix Trading Bot for Telegram
+# Phoenixchan Bot
 
-Multi-user Telegram bot for [Phoenix](https://phoenix.trade) perpetual futures
-on Solana. Each user gets a custodial embedded trading wallet operated by the
-bot; the bot is registered as a Flight builder with Phoenix and routes orders
-through Flight on behalf of users.
+A Telegram bot for trading [Phoenix](https://phoenix.trade) perpetual futures
+on Solana, with custodial embedded wallets, inline TP/SL, live fill alerts and
+auto-detection of deposits.
+
+**Try it:** [t.me/phoenixtradechanbot](https://t.me/phoenixtradechanbot)
+*(Phoenix is in private beta — you need an access/invite/referral code to use it.)*
+
+---
+
+## Features
+
+### Trading
+- `/long /short [symbol] [usdc] [leverage]` — market orders
+- `/limit [symbol] [side] [usdc] [price] [lev]` — limit orders
+- Inline TP/SL on every order: `/long SOL 100 5 tp=160 sl=130`
+- Standalone TP/SL on existing positions: `/tp /sl /tpsl`
+- `/close [symbol] [pct]` — partial or full close
+- `/cancel /cancelall` — single or bulk cancel
+- Inline confirmation buttons before execution (toggleable)
+
+### Account
+- `/pos` with inline action buttons (close 25/50/100%, +TP, +SL, refresh)
+- `/balance` — collateral + uPnL + equity
+- `/orders` — open orders
+- `/pnl [7d|30d]` — realized PnL window
+- `/history [7d|30d]` — recent trades with realized PnL, fees, win rate
+- `/funding` — current funding rates across all markets
+
+### Wallet
+- `/start` creates a per-user embedded Solana wallet (custodial)
+- `/register [code]` activates the trader account on Phoenix
+- `/deposit` shows address + instructions; `/deposit [amount]` credits USDC as Phoenix collateral
+- `/withdraw [amount]` — pulls from Phoenix collateral and SPL-transfers to the user's personal pubkey
+- `/setwithdraw [pubkey]` — sets the withdrawal destination
+- `/exportkey` — escape hatch: returns the private key in 3 formats (Phantom-compatible base58, JSON byte array, 32-byte seed). Self-destructs after 90s.
+
+### Alerts (live via Phoenix WebSocket)
+- Fill notifications — pinged on every market/limit/TP/SL fill
+- Liquidation alerts — special icon + tx link
+- Sharp collateral drop warnings (>30%)
+- Auto-detected deposits — bot tells you when new USDC lands and offers a one-tap credit button
+- Custom price alerts: `/alert SOL > 150`
+
+### Safety
+- AES-GCM encryption at rest for embedded wallet keys (32-byte master key)
+- Per-user rate limiting
+- Per-user notional cap
+- Optional whitelist mode
+- Full audit log of every trade attempt
+
+---
 
 ## Architecture
 
-- **Telegram layer**: [grammY](https://grammy.dev/) bot with commands, inline
-  confirmations, rate limiting, audit log.
-- **Phoenix layer**: [`@ellipsis-labs/rise`](https://www.npmjs.com/package/@ellipsis-labs/rise)
-  SDK. HTTP for market data + trader state, WebSocket for fills, Flight for
-  order routing.
-- **Solana layer**: [`@solana/kit`](https://www.npmjs.com/package/@solana/kit)
-  for tx assembly, signing, and confirmation.
-- **Storage**: SQLite (`better-sqlite3`). Encrypted at-rest per-user wallet
-  secrets via libsodium secretbox keyed by `MASTER_ENCRYPTION_KEY`.
-- **Deployment**: Docker + Fly.io (sample config) with a persistent volume for
-  the SQLite db.
+```
+Telegram ──▶ grammY ──▶ commands ──▶ Phoenix Rise SDK ──▶ Phoenix API + WS
+                            │                            │
+                            ▼                            ▼
+                       SQLite (WAL,                  Solana RPC (Triton)
+                       AES-GCM secrets)              ──▶ Phoenix Eternal program
+```
+
+- **Bot framework:** [grammY](https://grammy.dev/)
+- **Phoenix SDK:** [`@ellipsis-labs/rise`](https://www.npmjs.com/package/@ellipsis-labs/rise)
+- **Solana:** [`@solana/kit`](https://www.npmjs.com/package/@solana/kit)
+- **Storage:** [`better-sqlite3`](https://www.npmjs.com/package/better-sqlite3) with WAL
+- **Hosting:** Docker + Fly.io (sample config included)
+
+---
 
 ## Custody model
 
-This bot is **custodial** for each user's embedded trading wallet:
+This bot is **custodial** over each user's embedded trading wallet:
 
-- The bot generates a fresh Solana keypair per user on `/start`
-- The private key is encrypted with the master key and stored in SQLite
-- The user funds that wallet with USDC and SOL (for gas)
-- The bot signs all trades and withdrawals with that key
-- Users withdraw funds back to a pre-set personal address (`/setwithdraw`)
+1. The bot generates a Solana keypair per user on `/start`.
+2. The private key is AES-GCM encrypted with a master key (env var, never logged) and stored in SQLite.
+3. The user funds that wallet with USDC and SOL (for gas).
+4. The bot signs orders/withdrawals on the user's behalf.
+5. Users can withdraw funds back to a pre-set personal address via `/withdraw` at any time.
+6. Users can export the private key via `/exportkey` and take full self-custody.
 
 Phoenix recommends embedded wallets per integration; sharing the user's main
 wallet would bleed positions across dapps.
 
-## Setup
+---
+
+## Self-hosting
 
 ```bash
+git clone https://github.com/Sugusdaddy/phoenixchan-bot.git
+cd phoenixchan-bot
 cp .env.example .env
-# Fill in TELEGRAM_BOT_TOKEN, PHOENIX_BUILDER_AUTHORITY, PHOENIX_BUILDER_PRIVATE_KEY,
-# MASTER_ENCRYPTION_KEY (32 random bytes hex), SOLANA_RPC_URL, PHOENIX_API_KEY
-
-# Generate master key:
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# Fill in:
+#   TELEGRAM_BOT_TOKEN (from @BotFather)
+#   PHOENIX_BUILDER_AUTHORITY + PHOENIX_BUILDER_PRIVATE_KEY (from flight.phoenix.trade)
+#   MASTER_ENCRYPTION_KEY (random 32 bytes hex: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+#   SOLANA_RPC_URL (Helius / Triton / QuickNode — public RPC will not work)
 
 npm install
-npm run dev     # local
-npm run build && npm start   # production
+npm run build
+npm start
 ```
 
-## Phoenix builder setup
-
-Before users can trade, you need to register your bot's builder authority with
-Phoenix and obtain an API key. See
-[Phoenix docs — Flight routing](https://docs.phoenix.trade/) and the Rise SDK
-README for builder registration.
-
-Once registered, set:
-
-```env
-PHOENIX_BUILDER_AUTHORITY=<your builder pubkey>
-PHOENIX_BUILDER_PRIVATE_KEY=<base58 secret>
-PHOENIX_API_KEY=<your service api key>
-```
-
-## Deployment to Fly.io
+For 24/7 hosting on Fly.io:
 
 ```bash
-fly launch --copy-config --no-deploy
-fly volumes create phoenix_data --size 1
-fly secrets set \
-  TELEGRAM_BOT_TOKEN=... \
-  PHOENIX_API_KEY=... \
-  PHOENIX_BUILDER_AUTHORITY=... \
-  PHOENIX_BUILDER_PRIVATE_KEY=... \
-  MASTER_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
-  SOLANA_RPC_URL=...
-fly deploy
+flyctl launch --copy-config --no-deploy
+flyctl volumes create phoenix_data --size 1 --region <yours>
+flyctl secrets set TELEGRAM_BOT_TOKEN=... PHOENIX_BUILDER_AUTHORITY=... ...
+flyctl deploy --remote-only
 ```
 
-For Railway/Hetzner just `docker build -f docker/Dockerfile -t phoenix-bot .`
-and run with the env vars + a mounted `/app/data` volume.
+---
 
-## Commands
+## Builder fees (Flight)
 
-See `/help` in the bot. Categories:
+The bot is designed to route orders through Phoenix [Flight](https://docs.phoenix.trade/phoenix/flight) so the configured builder authority can collect builder fees on every fill. Set `PHOENIX_DISABLE_FLIGHT=false` once you register your builder at [flight.phoenix.trade](https://flight.phoenix.trade) and supply real `PHOENIX_BUILDER_AUTHORITY` + `PHOENIX_BUILDER_PRIVATE_KEY`.
 
-- Wallet: `/start`, `/status`, `/balance`, `/setwithdraw`, `/withdraw`, `/tos`, `/unlink`
-- Market: `/price`, `/markets`
-- Account: `/pos`, `/orders`, `/pnl`, `/funding`
-- Trade: `/long`, `/short`, `/limit`, `/close`, `/cancel`, `/cancelall`
-- Alerts: `/alert`, `/alerts`, `/delalert`
-- Settings: `/confirm`, `/maxnotional`
+If `PHOENIX_DISABLE_FLIGHT=true`, orders are placed natively without Flight wrapping (no builder fees but useful for testing).
 
-## Safety and limits
-
-- `MAX_NOTIONAL_USDC` per-trade cap (env default, per-user override with `/maxnotional`)
-- `RATE_LIMIT_TRADES_PER_MIN` per-user rate limit
-- `WHITELIST_USER_IDS` to restrict access during private rollout
-- Inline confirmation on every trade by default (toggle with `/confirm off`)
-- Full audit log of every trade attempt in `audit_log` table
+---
 
 ## Status
 
-**Beta scaffold.** Phoenix is in private beta and the Rise SDK is at v0.4.x —
-some method signatures (cancel-orders builders, PnL/funding history endpoints)
-are wrapped defensively and may need adjustment once you point a real builder
-key at the live API. The trade flow, key management, audit, and alert
-machinery is complete and structured for live use.
+Early beta. Functional end-to-end on Phoenix mainnet. Not audited.
 
-## TODO
+Trade perpetual futures responsibly — liquidation can occur faster than you can react. Use at your own risk.
 
-- Withdraw flow (`/withdraw <amount>`) — needs `buildWithdrawFlow` wiring
-- TP/SL orders via `placeIsolatedConditionalOrder`
-- Liquidation proximity alerts (margin ratio threshold via WS trader state)
-- `/history` recent fills view
-- Tests against a Phoenix devnet/sandbox
+---
 
 ## License
 
