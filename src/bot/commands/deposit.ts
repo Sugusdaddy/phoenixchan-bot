@@ -82,6 +82,15 @@ export async function depositCmd(ctx: CommandContext<Context>): Promise<void> {
       );
       return;
     }
+    if (/429|too many requests|rate.?limit/i.test(msg)) {
+      await ctx.reply(
+        [
+          "Solana RPC rate limit hit. Try again in a few seconds.",
+          "Long-term fix: the bot operator should set a paid RPC (Helius/QuickNode) in SOLANA_RPC_URL.",
+        ].join("\n")
+      );
+      return;
+    }
     await ctx.reply(`Deposit failed: ${msg}`);
   }
 }
