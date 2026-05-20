@@ -47,21 +47,54 @@ export async function registerCmd(ctx: CommandContext<Context>): Promise<void> {
     await ctx.reply("Registering with Phoenix…");
 
     const client = getClient();
-    const resp = await client.api.invite().activateInvite({
-      authority: user.trader_authority,
-      code: arg,
-    });
+    let traderPda: string | null = null;
+    let usedFlow: "invite" | "referral" = "invite";
+    let inviteErr: string | null = null;
 
-    markRegistered(ctx.from.id, resp.trader_pda, arg);
+    try {
+      const resp = await client.api.invite().activateInvite({
+        authority: user.trader_authority,
+        code: arg,
+      });
+      traderPda = resp.trader_pda;
+    } catch (e) {
+      inviteErr = (e as Error).message;
+      logger.debug({ err: inviteErr }, "invite code path failed, trying referral");
+    }
+
+    if (!traderPda) {
+      try {
+        const resp = await client.api.invite().activateInviteWithReferral({
+          authority: user.trader_authority,
+          referral_code: arg,
+        });
+        traderPda = resp.trader_pda;
+        usedFlow = "referral";
+      } catch (e) {
+        const refErr = (e as Error).message;
+        logger.error({ inviteErr, refErr, code: arg }, "both register paths failed");
+        const looksInvalid = /invalid|not.*found|400/i.test(inviteErr ?? "") &&
+          /invalid|not.*found|400/i.test(refErr);
+        if (looksInvalid) {
+          await ctx.reply(
+            "That code wasn't accepted as an invite or referral. Check it with the friend who gave it to you (or use a different code)."
+          );
+          return;
+        }
+        throw e;
+      }
+    }
+
+    markRegistered(ctx.from.id, traderPda, arg);
     logger.info(
-      { telegramId: ctx.from.id, authority: user.trader_authority, traderPda: resp.trader_pda },
+      { telegramId: ctx.from.id, authority: user.trader_authority, traderPda, flow: usedFlow },
       "trader registered"
     );
 
     await ctx.reply(
       [
-        `${bold("Registered ✅")}`,
-        `Trader PDA: ${code(resp.trader_pda)}`,
+        `${bold("Registered ✅")}  (${usedFlow})`,
+        `Trader PDA: ${code(traderPda)}`,
         ``,
         `Next steps:`,
         `1. Fund your wallet with USDC + a bit of SOL`,

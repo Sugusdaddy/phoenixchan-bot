@@ -1,4 +1,5 @@
 import type { CommandContext, Context } from "grammy";
+import { InlineKeyboard } from "grammy";
 import { acceptTos } from "../../db/wallets.js";
 import { getUser } from "../../db/users.js";
 import { bold } from "../format.js";
@@ -17,15 +18,16 @@ const TOS_TEXT = `${bold("Terms of Use — read carefully")}
 5. Do not use this bot if you are in a jurisdiction where perpetual futures
    are restricted.
 
-To accept and enable trading, reply with /tos accept.
-To decline, ignore this message or use /unlink to remove your wallet.`;
+Tap the button below to accept, or send /tos accept.`;
+
+const ACCEPTED_TEXT = `${bold("Terms accepted ✅")}\nTrading is now enabled.`;
 
 export async function tosCmd(ctx: CommandContext<Context>): Promise<void> {
   if (!ctx.from) return;
   const arg = ctx.match?.toString().trim().toLowerCase();
   if (arg === "accept") {
     acceptTos(ctx.from.id);
-    await ctx.reply("Terms accepted. Trading is now enabled.", { parse_mode: "HTML" });
+    await ctx.reply(ACCEPTED_TEXT, { parse_mode: "HTML" });
     return;
   }
   const user = getUser(ctx.from.id);
@@ -33,5 +35,21 @@ export async function tosCmd(ctx: CommandContext<Context>): Promise<void> {
     await ctx.reply("You have already accepted the terms.", { parse_mode: "HTML" });
     return;
   }
-  await ctx.reply(TOS_TEXT, { parse_mode: "HTML" });
+  await ctx.reply(TOS_TEXT, {
+    parse_mode: "HTML",
+    reply_markup: new InlineKeyboard().text("✅ I accept", "tos:accept").text("Decline", "tos:decline"),
+  });
+}
+
+export async function onTosCallback(ctx: Context): Promise<void> {
+  const data = ctx.callbackQuery?.data;
+  if (!ctx.from || !data?.startsWith("tos:")) return;
+  await ctx.answerCallbackQuery();
+  const action = data.split(":")[1];
+  if (action === "accept") {
+    acceptTos(ctx.from.id);
+    await ctx.editMessageText(ACCEPTED_TEXT, { parse_mode: "HTML" });
+  } else {
+    await ctx.editMessageText("Terms not accepted. You can run /tos again any time.");
+  }
 }

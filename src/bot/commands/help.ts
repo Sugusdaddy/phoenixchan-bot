@@ -16,6 +16,7 @@ export async function helpCmd(ctx: CommandContext<Context>): Promise<void> {
       `${bold("Wallet")}`,
       `/status — show wallet, balances, settings`,
       `/balance — collateral and free margin`,
+      `/deposit — show your deposit address`,
       `/withdraw [amount] — withdraw USDC to your address`,
       ``,
       `${bold("Market data")}`,

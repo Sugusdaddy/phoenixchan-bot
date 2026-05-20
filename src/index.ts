@@ -8,10 +8,12 @@ import { rateLimit } from "./bot/middleware/ratelimit.js";
 
 import { startCmd } from "./bot/commands/start.js";
 import { statusCmd } from "./bot/commands/status.js";
-import { tosCmd } from "./bot/commands/tos.js";
+import { tosCmd, onTosCallback } from "./bot/commands/tos.js";
 import { unlinkCmd } from "./bot/commands/unlink.js";
 import { helpCmd } from "./bot/commands/help.js";
 import { setWithdrawCmd } from "./bot/commands/setwithdraw.js";
+import { depositCmd } from "./bot/commands/deposit.js";
+import { withdrawCmd } from "./bot/commands/withdraw.js";
 import { registerCmd } from "./bot/commands/register.js";
 import { priceCmd, marketsCmd } from "./bot/commands/price.js";
 import { posCmd, balanceCmd } from "./bot/commands/pos.js";
@@ -42,6 +44,8 @@ bot.command("help", helpCmd);
 bot.command("tos", tosCmd);
 bot.command("status", statusCmd);
 bot.command("setwithdraw", setWithdrawCmd);
+bot.command("deposit", depositCmd);
+bot.command("withdraw", requireLinked, requireRegistered, withdrawCmd);
 bot.command("register", registerCmd);
 bot.command("unlink", unlinkCmd);
 bot.command("confirm", confirmCmd);
@@ -72,7 +76,11 @@ bot.command("alert", requireLinked, alertCmd);
 bot.command("alerts", requireLinked, alertsCmd);
 bot.command("delalert", requireLinked, delAlertCmd);
 
-bot.on("callback_query:data", onConfirmCallback);
+bot.on("callback_query:data", async (ctx) => {
+  const data = ctx.callbackQuery.data;
+  if (data?.startsWith("tos:")) return onTosCallback(ctx);
+  if (data?.startsWith("confirm:")) return onConfirmCallback(ctx);
+});
 
 bot.catch((err) => {
   logger.error({ err: err.error, update: err.ctx.update.update_id }, "bot handler error");
@@ -85,6 +93,8 @@ async function main() {
     { command: "register", description: "Register with Phoenix (access code)" },
     { command: "tos", description: "Accept terms of use" },
     { command: "status", description: "Show account status" },
+    { command: "deposit", description: "Show deposit address" },
+    { command: "withdraw", description: "Withdraw USDC to your address" },
     { command: "price", description: "Market price (mid/bid/ask)" },
     { command: "pos", description: "Open positions" },
     { command: "orders", description: "Open orders" },
