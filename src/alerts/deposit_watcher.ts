@@ -47,8 +47,14 @@ async function fetchUsdcBalance(owner: Address): Promise<bigint | null> {
     if (!info?.value?.amount) return 0n;
     return BigInt(info.value.amount);
   } catch (e) {
-    const msg = (e as Error).message;
-    if (/could not find account|AccountNotFound|TokenAccountNotFoundError/i.test(msg)) {
+    const msg = (e as Error).message ?? "";
+    const code = (e as { code?: number }).code;
+    if (
+      code === -32602 ||
+      /could not find account|AccountNotFound|TokenAccountNotFoundError|Invalid param|-32602/i.test(
+        msg
+      )
+    ) {
       return 0n;
     }
     throw e;
