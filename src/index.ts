@@ -31,6 +31,7 @@ import {
 } from "./bot/commands/trade.js";
 import { confirmCmd, maxNotionalCmd } from "./bot/commands/settings.js";
 import { tpCmd, slCmd, tpslCmd } from "./bot/commands/tpsl.js";
+import { statsCmd } from "./bot/commands/stats.js";
 import { alertCmd, alertsCmd, delAlertCmd } from "./bot/commands/alerts.js";
 import { startAlertEngine } from "./alerts/engine.js";
 import { disposeAll } from "./phoenix/clients.js";
@@ -43,6 +44,7 @@ bot.use(ensureUser);
 // Setup
 bot.command("start", startCmd);
 bot.command("help", helpCmd);
+bot.command("stats", statsCmd);
 bot.command("tos", tosCmd);
 bot.command("status", statusCmd);
 bot.command("setwithdraw", setWithdrawCmd);
@@ -96,6 +98,7 @@ async function main() {
   await bot.api.setMyCommands([
     { command: "start", description: "Create your trading wallet" },
     { command: "help", description: "List all commands" },
+    { command: "stats", description: "Bot stats (users, trades)" },
     { command: "register", description: "Register with Phoenix (access code)" },
     { command: "tos", description: "Accept terms of use" },
     { command: "status", description: "Show account status" },

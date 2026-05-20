@@ -3,7 +3,14 @@ import { getUser } from "../../db/users.js";
 import { setEmbeddedWallet } from "../../db/wallets.js";
 import { encrypt } from "../../crypto/keys.js";
 import { generateEmbeddedWallet } from "../../crypto/solana.js";
+import { getStats } from "../../db/stats.js";
 import { bold, code, solscanAccount } from "../format.js";
+
+function socialProof(): string {
+  const s = getStats();
+  if (s.walletsCreated < 5) return "";
+  return `👥 ${s.walletsCreated} users have joined the bot so far.`;
+}
 
 export async function startCmd(ctx: CommandContext<Context>): Promise<void> {
   if (!ctx.from) return;
@@ -33,10 +40,11 @@ export async function startCmd(ctx: CommandContext<Context>): Promise<void> {
   setEmbeddedWallet(ctx.from.id, signer.address, enc);
   privateKeyBytes.fill(0);
 
+  const proof = socialProof();
   await ctx.reply(
     [
       `${bold("Welcome to the Phoenix trading bot.")}`,
-      ``,
+      ...(proof ? [proof, ``] : []),
       `Your trading wallet has been created:`,
       code(signer.address),
       ``,

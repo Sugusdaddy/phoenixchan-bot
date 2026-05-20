@@ -6,6 +6,8 @@ export async function helpCmd(ctx: CommandContext<Context>): Promise<void> {
     [
       `${bold("Phoenix Trading Bot")}`,
       ``,
+      `/stats — bot stats (users, trades)`,
+      ``,
       `${bold("Setup")}`,
       `/start — create your trading wallet`,
       `/register [code] — register your trader account with Phoenix (required)`,
