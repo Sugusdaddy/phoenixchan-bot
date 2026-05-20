@@ -4,13 +4,21 @@ import type {
   TraderStateMarketLimitOrderRow,
 } from "@ellipsis-labs/rise";
 
-interface LimitOrderEvent {
+interface MarketParams {
   symbol: string;
-  orders: TraderStateMarketLimitOrderRow[];
+  baseLotsDecimals: number;
+  tickSize: number;
 }
 import type { PhoenixClient } from "./clients.js";
 import { getMarket } from "./markets.js";
 import { logger } from "../logger.js";
+
+interface LimitOrderEvent {
+  symbol: string;
+  orders: TraderStateMarketLimitOrderRow[];
+}
+
+const USDC_DECIMALS = 6;
 
 export interface PositionSummary {
   symbol: string;
@@ -19,7 +27,6 @@ export interface PositionSummary {
   entryPrice: number | null;
   markPrice: number | null;
   unrealizedPnl: number | null;
-  fundingPaid: number | null;
 }
 
 export interface OrderSummary {
@@ -46,6 +53,19 @@ function toNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+async function getMarketCfgMap(client: PhoenixClient): Promise<Map<string, MarketParams>> {
+  const snapshot = await client.exchange.ready();
+  const map = new Map<string, MarketParams>();
+  for (const m of snapshot.markets) {
+    map.set(m.symbol, {
+      symbol: m.symbol,
+      baseLotsDecimals: m.baseLotsDecimals,
+      tickSize: m.tickSize,
+    });
+  }
+  return map;
+}
+
 export async function getAccountSummary(
   client: PhoenixClient,
   authority: string
@@ -68,22 +88,21 @@ export async function getAccountSummary(
 
   const sub0 = snap.snapshot.subaccounts[0];
   if (!sub0) {
-    return {
-      authority,
-      collateralUsd: 0,
-      totalUnrealizedPnl: 0,
-      positions: [],
-      openOrders: [],
-    };
+    return { authority, collateralUsd: 0, totalUnrealizedPnl: 0, positions: [], openOrders: [] };
   }
 
-  const collateralUsd = toNum(sub0.collateral);
+  const collateralRaw = toNum(sub0.collateral);
+  const collateralUsd = collateralRaw !== null ? collateralRaw / 10 ** USDC_DECIMALS : null;
+
+  const marketCfg = await getMarketCfgMap(client);
 
   const positions: PositionSummary[] = [];
   for (const p of sub0.positions) {
-    const baseQtyRaw = toNum(p.basePositionUnits) ?? 0;
-    if (Math.abs(baseQtyRaw) < 1e-9) continue;
-    const entryPrice = toNum(p.entryPriceUsd);
+    const cfg = marketCfg.get(p.symbol);
+    const baseQtyRaw = readBaseQty(p, cfg);
+    if (Math.abs(baseQtyRaw) < 1e-12) continue;
+
+    const entryPrice = readEntryPrice(p, cfg);
     let markPrice: number | null = null;
     try {
       const m = await getMarket(client, p.symbol);
@@ -91,6 +110,7 @@ export async function getAccountSummary(
     } catch {
       // ignore
     }
+
     const side: "long" | "short" = baseQtyRaw > 0 ? "long" : "short";
     const baseQty = Math.abs(baseQtyRaw);
     const upnl =
@@ -100,16 +120,7 @@ export async function getAccountSummary(
           : baseQty * (entryPrice - markPrice)
         : null;
 
-    const fundingPaid = computeFundingPaid(p);
-    positions.push({
-      symbol: p.symbol,
-      side,
-      baseQty,
-      entryPrice,
-      markPrice,
-      unrealizedPnl: upnl,
-      fundingPaid,
-    });
+    positions.push({ symbol: p.symbol, side, baseQty, entryPrice, markPrice, unrealizedPnl: upnl });
   }
 
   const openOrders: OrderSummary[] = [];
@@ -121,21 +132,23 @@ export async function getAccountSummary(
 
   const totalUnrealizedPnl = positions.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
 
-  return {
-    authority,
-    collateralUsd,
-    totalUnrealizedPnl,
-    positions,
-    openOrders,
-  };
+  return { authority, collateralUsd, totalUnrealizedPnl, positions, openOrders };
 }
 
-function computeFundingPaid(p: TraderStatePositionSnapshot): number | null {
-  const a = toNum(p.accumulatedFundingQuoteLots);
-  const u = toNum(p.unsettledFundingQuoteLots);
-  if (a === null && u === null) return null;
-  // these are quote-lot units; just sum and return raw — UX formatting elsewhere
-  return (a ?? 0) + (u ?? 0);
+function readBaseQty(p: TraderStatePositionSnapshot, cfg: MarketParams | undefined): number {
+  const units = toNum(p.basePositionUnits);
+  if (units !== null) return units;
+  const lots = toNum(p.basePositionLots);
+  if (lots !== null && cfg) return lots / 10 ** cfg.baseLotsDecimals;
+  return 0;
+}
+
+function readEntryPrice(p: TraderStatePositionSnapshot, cfg: MarketParams | undefined): number | null {
+  const usd = toNum(p.entryPriceUsd);
+  if (usd !== null) return usd;
+  const ticks = toNum(p.entryPriceTicks);
+  if (ticks !== null && cfg) return ticks * cfg.tickSize;
+  return null;
 }
 
 function mapOrder(symbol: string, o: TraderStateMarketLimitOrderRow): OrderSummary {
