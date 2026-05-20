@@ -23,6 +23,31 @@ interface PendingTrade {
   leverage: number;
   baseUnits: string;
   priceUsd?: string;
+  tpUsd?: number;
+  slUsd?: number;
+}
+
+function parseTradeArgs(parts: string[]): {
+  positional: string[];
+  tpUsd?: number;
+  slUsd?: number;
+} {
+  const positional: string[] = [];
+  let tpUsd: number | undefined;
+  let slUsd: number | undefined;
+  for (const p of parts) {
+    const m = /^(tp|sl)=([\d.]+)$/i.exec(p);
+    if (m) {
+      const v = parseFloat(m[2]!);
+      if (Number.isFinite(v) && v > 0) {
+        if (m[1]!.toLowerCase() === "tp") tpUsd = v;
+        else slUsd = v;
+      }
+    } else {
+      positional.push(p);
+    }
+  }
+  return { positional, tpUsd, slUsd };
 }
 
 async function notionalToBaseUnits(
@@ -67,9 +92,12 @@ async function marketCmd(ctx: CommandContext<Context>, side: "long" | "short"): 
   if (!user?.trader_authority) return void ctx.reply("Run /start first.");
   if (!user.tos_accepted_at) return void ctx.reply("Accept terms with /tos first.");
 
-  const parts = (ctx.match?.toString() ?? "").trim().split(/\s+/).filter(Boolean);
+  const rawParts = (ctx.match?.toString() ?? "").trim().split(/\s+/).filter(Boolean);
+  const { positional: parts, tpUsd, slUsd } = parseTradeArgs(rawParts);
   if (parts.length < 2) {
-    return void ctx.reply(`Usage: /${side} <symbol> <usdc> [leverage]`);
+    return void ctx.reply(
+      `Usage: /${side} [symbol] [usdc] [leverage] [tp=price] [sl=price]\nExample: /${side} SOL 100 5 tp=160 sl=130`
+    );
   }
   try {
     const symbol = symbolSchema.parse(parts[0]);
@@ -78,6 +106,14 @@ async function marketCmd(ctx: CommandContext<Context>, side: "long" | "short"): 
     await enforceLimits(ctx.from.id, notional, leverage);
 
     const { baseUnits, markPrice } = await notionalToBaseUnits(ctx.from.id, symbol, notional, leverage);
+    if (tpUsd !== undefined && slUsd !== undefined) {
+      if (side === "long" && tpUsd <= slUsd) {
+        return void ctx.reply("For a LONG: tp must be above sl.");
+      }
+      if (side === "short" && tpUsd >= slUsd) {
+        return void ctx.reply("For a SHORT: tp must be below sl.");
+      }
+    }
     const pending: PendingTrade = {
       kind: "market",
       symbol,
@@ -85,6 +121,8 @@ async function marketCmd(ctx: CommandContext<Context>, side: "long" | "short"): 
       notionalUsd: notional,
       leverage,
       baseUnits,
+      tpUsd,
+      slUsd,
     };
 
     if (!user.confirm_trades) {
@@ -93,11 +131,15 @@ async function marketCmd(ctx: CommandContext<Context>, side: "long" | "short"): 
     }
 
     setPendingConfirm(ctx.from.id, pending, 30);
+    const extras: string[] = [];
+    if (tpUsd !== undefined) extras.push(`TP: ${fmtUsd(tpUsd)}`);
+    if (slUsd !== undefined) extras.push(`SL: ${fmtUsd(slUsd)}`);
     await ctx.reply(
       [
         `${bold("Confirm trade")}`,
         `${side.toUpperCase()} ${symbol} ${baseUnits} (≈ ${fmtUsd(notional * leverage)} notional)`,
         `Ref mark: ${fmtUsd(markPrice)}   Leverage: ${leverage}x`,
+        ...(extras.length ? [extras.join("   ")] : []),
         ``,
         `Expires in 30s.`,
       ].join("\n"),
@@ -227,6 +269,32 @@ async function executeTrade(
         solscanLink(res.txSig),
       ].join("\n")
     );
+
+    if (p.kind === "market" && (p.tpUsd || p.slUsd)) {
+      try {
+        const { setPositionTpSl } = await import("../../phoenix/conditional.js");
+        const tpsl = await setPositionTpSl({
+          telegramId: ctx.from.id,
+          authority: user.trader_authority,
+          symbol: res.symbol,
+          positionSide: p.side,
+          tpUsd: p.tpUsd ?? null,
+          slUsd: p.slUsd ?? null,
+        });
+        const parts: string[] = [];
+        if (p.tpUsd) parts.push(`🎯 TP ${fmtUsd(p.tpUsd)}`);
+        if (p.slUsd) parts.push(`🛑 SL ${fmtUsd(p.slUsd)}`);
+        await ctx.reply(
+          `${parts.join("   ")}\n${solscanLink(tpsl.txSig)}`,
+          { parse_mode: "HTML" }
+        );
+      } catch (tpslErr) {
+        logger.error({ err: tpslErr }, "attaching tp/sl failed");
+        await ctx.reply(
+          `Order placed, but attaching TP/SL failed: ${(tpslErr as Error).message}\nTry /tp or /sl manually.`
+        );
+      }
+    }
   } catch (e) {
     logger.error({ err: e, p }, "trade failed");
     record({

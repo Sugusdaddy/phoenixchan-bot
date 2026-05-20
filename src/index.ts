@@ -30,6 +30,7 @@ import {
   onConfirmCallback,
 } from "./bot/commands/trade.js";
 import { confirmCmd, maxNotionalCmd } from "./bot/commands/settings.js";
+import { tpCmd, slCmd, tpslCmd } from "./bot/commands/tpsl.js";
 import { alertCmd, alertsCmd, delAlertCmd } from "./bot/commands/alerts.js";
 import { startAlertEngine } from "./alerts/engine.js";
 import { disposeAll } from "./phoenix/clients.js";
@@ -72,6 +73,9 @@ bot.command("limit", ...tradeMw, limitCmd);
 bot.command("close", ...tradeMw, closeCmd);
 bot.command("cancel", requireLinked, requireRegistered, requireTos, cancelCmd);
 bot.command("cancelall", requireLinked, requireRegistered, requireTos, cancelAllCmd);
+bot.command("tp", requireLinked, requireRegistered, requireTos, tpCmd);
+bot.command("sl", requireLinked, requireRegistered, requireTos, slCmd);
+bot.command("tpsl", requireLinked, requireRegistered, requireTos, tpslCmd);
 
 // Alerts
 bot.command("alert", requireLinked, alertCmd);
@@ -108,6 +112,9 @@ async function main() {
     { command: "close", description: "Close position" },
     { command: "cancel", description: "Cancel an order" },
     { command: "cancelall", description: "Cancel all orders for a symbol" },
+    { command: "tp", description: "Set take-profit on a position" },
+    { command: "sl", description: "Set stop-loss on a position" },
+    { command: "tpsl", description: "Set both TP and SL at once" },
     { command: "alert", description: "Create a price alert" },
     { command: "alerts", description: "List active alerts" },
   ]);
